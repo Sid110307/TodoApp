@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">TodoApp</string>
+    <string name="info">TodoApp v%1$s\n\nThis application manages notes and todos with deadlines and notifies the user when the deadline is reached.\n\nMade by Siddharth Praveen Bharadwaj\nKV IISc</string>
 </resources>

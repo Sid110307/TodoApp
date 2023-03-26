@@ -27,7 +27,7 @@ class BackgroundService : Service() {
 		alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
 		notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 		notificationIntent = PendingIntent.getActivity(
-			this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT
+			this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
 		)
 
 		notificationChannel =
@@ -62,7 +62,7 @@ class BackgroundService : Service() {
 				AlarmManager.RTC_WAKEUP, notificationTime, PendingIntent.getService(
 					this, 0, Intent(this, BackgroundService::class.java).apply {
 						action = "show_notification"
-					}, PendingIntent.FLAG_UPDATE_CURRENT
+					}, PendingIntent.FLAG_IMMUTABLE
 				)
 			)
 		}

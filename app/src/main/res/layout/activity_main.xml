@@ -19,7 +19,7 @@
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
             android:hint="Enter a todo item"
-            android:inputType="textCapSentences" />
+            android:inputType="text" />
 
         <Button
             android:id="@+id/btnDeadline"
@@ -42,5 +42,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:background="?attr/selectableItemBackground"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
         tools:listitem="@layout/list_item" />
 </LinearLayout>

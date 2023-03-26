@@ -5,20 +5,23 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.datepicker.CalendarConstraints
+import com.google.android.material.datepicker.DateValidatorPointForward
 import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.sid.todoapp.databinding.ActivityMainBinding
+import com.sid.todoapp.databinding.ListItemBinding
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,14 +51,18 @@ class MainActivity : AppCompatActivity() {
 		todoList.add(Pair(todoItems, deadlineItems))
 
 		binding.btnDeadline.setOnClickListener {
-			MaterialDatePicker.Builder.datePicker().build().apply {
+			MaterialDatePicker.Builder.datePicker().setCalendarConstraints(
+				CalendarConstraints.Builder().setValidator(DateValidatorPointForward.now()).build()
+			).build().apply {
 				addOnPositiveButtonClickListener { deadline ->
-					val date = SimpleDateFormat(
-						"MMMM dd, yyyy", Locale.getDefault()
-					).format(Date(deadline))
+					val date = SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(
+						Date(deadline)
+					)
 					Snackbar.make(
 						binding.btnDeadline, "Deadline set to $date", Snackbar.LENGTH_LONG
-					).setAction("Change") { show(supportFragmentManager, "DATE_PICKER") }.show()
+					).setAction("Change") {
+						show(supportFragmentManager, "DATE_PICKER")
+					}.show()
 
 					deadlineValue = deadline
 				}
@@ -75,6 +82,13 @@ class MainActivity : AppCompatActivity() {
 				return@setOnClickListener
 			}
 
+			todoItems.clear()
+			deadlineItems.clear()
+
+			todoItems.add(todoItem)
+			deadlineItems.add(deadlineValue)
+			deadlineValue = 0
+
 			todoList.add(Pair(todoItems, deadlineItems))
 			prefs.edit().putStringSet("todoList", todoItems.toSet()).apply()
 			prefs.edit().putStringSet("deadlineList", deadlineItems.map { it.toString() }.toSet())
@@ -84,7 +98,28 @@ class MainActivity : AppCompatActivity() {
 			binding.editTodo.text.clear()
 		}
 
-		binding.itemList.findViewById<Button>(R.id.btnDelete).setOnClickListener { view ->
+		binding.itemList.setOnLongClickListener {
+			val position = binding.itemList.getChildAdapterPosition(it)
+
+			MaterialAlertDialogBuilder(this).setTitle("Edit todo item")
+				.setMessage("Enter new todo item").setView(R.layout.edit_todo)
+				.setPositiveButton("OK") { _, _ ->
+					val newTodoItem = binding.editTodo.text.toString().trim()
+					if (newTodoItem.isEmpty()) {
+						binding.editTodo.error = "Please enter a todo item"
+						return@setPositiveButton
+					}
+
+					todoItems[position] = newTodoItem
+					prefs.edit().putStringSet("todoList", todoItems.toSet()).apply()
+					adapter.notifyItemChanged(position)
+				}.setNegativeButton("Cancel") { _, _ -> }.create().show()
+
+			true
+		}
+
+		val itemList = ListItemBinding.inflate(LayoutInflater.from(this))
+		itemList.btnDelete.setOnClickListener { view ->
 			val position = binding.itemList.getChildAdapterPosition(view.parent as View)
 
 			todoItems.removeAt(position)
@@ -112,30 +147,34 @@ class MainActivity : AppCompatActivity() {
 		(getSystemService(ALARM_SERVICE) as AlarmManager).setRepeating(
 			AlarmManager.RTC_WAKEUP,
 			System.currentTimeMillis(),
-			AlarmManager.INTERVAL_HALF_DAY,
+			AlarmManager.INTERVAL_HOUR,
 			PendingIntent.getBroadcast(
 				this,
 				0,
 				Intent(this, DeadlineCheckReceiver::class.java),
-				PendingIntent.FLAG_UPDATE_CURRENT
+				PendingIntent.FLAG_IMMUTABLE
 			)
 		)
 	}
 
 	override fun onCreateOptionsMenu(menu: Menu?): Boolean {
-		super.onCreateOptionsMenu(menu)
 		menuInflater.inflate(R.menu.menu_main, menu)
-
-		return true
+		return super.onCreateOptionsMenu(menu)
 	}
 
+	@Suppress("DEPRECATION")
 	override fun onOptionsItemSelected(item: MenuItem): Boolean {
+
+		val appVersion =
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) packageManager.getPackageInfo(
+				packageName, PackageManager.PackageInfoFlags.of(0)
+			).versionName else packageManager.getPackageInfo(packageName, 0).versionName
+
 		when (item.itemId) {
 			R.id.infoMenu -> {
 				MaterialAlertDialogBuilder(this).setTitle("App Info").setIcon(R.drawable.ic_info)
-					.setMessage(
-						"TodoApp\nVersion ${BuildConfig.VERSION_NAME}\n\nThis application manages notes and todos with deadlines and notifies the user when the deadline is reached."
-					).setPositiveButton("OK") { _, _ -> }.create().show()
+					.setMessage(getString(R.string.info, appVersion))
+					.setPositiveButton("OK") { _, _ -> }.create().show()
 			}
 		}
 
@@ -216,19 +255,25 @@ class MainActivity : AppCompatActivity() {
 			return TodoViewHolder(view)
 		}
 
-		override fun onBindViewHolder(holder: TodoViewHolder, position: Int) {
-			val todoItem = todoList[position].first[position]
-			val deadlineItem = todoList[position].second[position]
 
-			holder.todoItem.text = todoItem
-			holder.deadlineItem.text = deadlineItem.toString()
-		}
+		override fun onBindViewHolder(holder: TodoViewHolder, position: Int) =
+			holder.bind(todoList[position])
 
 		override fun getItemCount(): Int = todoList.size
 
-		inner class TodoViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-			val todoItem: TextView = itemView.findViewById(R.id.txtTodo)
-			val deadlineItem: TextView = itemView.findViewById(R.id.txtDeadline)
+		class TodoViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+			private val binding = ListItemBinding.bind(itemView)
+
+			fun bind(todoItem: Pair<ArrayList<String>, ArrayList<Long>>) {
+				if (todoItem.first.isEmpty() || todoItem.second.isEmpty()) return
+
+				val date = SimpleDateFormat(
+					"MMMM dd, yyyy", Locale.getDefault()
+				).format(Date(todoItem.second[0]))
+
+				binding.txtTodo.text = todoItem.first[0]
+				binding.txtDeadline.text = date
+			}
 		}
 	}
 }

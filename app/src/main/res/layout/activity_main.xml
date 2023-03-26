@@ -37,7 +37,7 @@
         android:layout_gravity="center"
         android:text="Add" />
 
-    <ListView
+    <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/itemList"
         android:layout_width="match_parent"
         android:layout_height="0dp"

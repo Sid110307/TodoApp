@@ -5,7 +5,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object TodoStore {
-	data class Todo(val text: String, val deadline: Long, val done: Boolean = false)
+	data class Todo(
+		val text: String,
+		val deadline: Long,
+		val done: Boolean = false,
+		val kanboardTaskId: Int? = null,
+	)
 
 	fun load(context: Context): ArrayList<Todo> {
 		val json = context.getSharedPreferences("todos", Context.MODE_PRIVATE)
@@ -15,7 +20,14 @@ object TodoStore {
 		val array = JSONArray(json)
 		for (i in 0 until array.length()) {
 			val obj = array.getJSONObject(i)
-			todos.add(Todo(obj.getString("text"), obj.getLong("deadline"), obj.optBoolean("done")))
+			todos.add(
+				Todo(
+					obj.getString("text"),
+					obj.getLong("deadline"),
+					obj.optBoolean("done"),
+					obj.optInt("kanboardTaskId", 0).takeIf { it != 0 }
+				)
+			)
 		}
 
 		return todos
@@ -25,6 +37,7 @@ object TodoStore {
 		val array = JSONArray()
 		for (todo in todos) array.put(
 			JSONObject().put("text", todo.text).put("deadline", todo.deadline).put("done", todo.done)
+				.put("kanboardTaskId", todo.kanboardTaskId ?: 0)
 		)
 
 		context.getSharedPreferences("todos", Context.MODE_PRIVATE).edit()

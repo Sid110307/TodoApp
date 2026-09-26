@@ -7,4 +7,8 @@
         android:icon="@drawable/ic_info"
         android:title="Info"
         app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/kanboardMenu"
+        android:title="Kanboard"
+        app:showAsAction="never" />
 </menu>

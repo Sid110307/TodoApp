@@ -22,6 +22,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.sid.todoapp.databinding.ActivityMainBinding
 import com.sid.todoapp.databinding.EditTodoBinding
+import com.sid.todoapp.databinding.KanboardSettingsBinding
 import com.sid.todoapp.databinding.ListItemBinding
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -81,14 +82,25 @@ class MainActivity : AppCompatActivity() {
 				return@setOnClickListener
 			}
 
+			val index = todos.size
 			todos.add(TodoStore.Todo(text, deadlineValue))
 			deadlineValue = 0
 
 			TodoStore.save(this, todos)
-			adapter.notifyItemInserted(todos.size - 1)
+			adapter.notifyItemInserted(index)
 			binding.editTodo.text.clear()
 
 			startService(Intent(this, BackgroundService::class.java))
+
+			KanboardConfig.load(this)?.let { config ->
+				KanboardClient.createTask(config, text) { taskId ->
+					if (taskId == null || index >= todos.size) return@createTask
+
+					todos[index] = todos[index].copy(kanboardTaskId = taskId)
+					TodoStore.save(this, todos)
+					adapter.notifyItemChanged(index)
+				}
+			}
 		}
 	}
 
@@ -98,6 +110,12 @@ class MainActivity : AppCompatActivity() {
 
 		TodoStore.save(this, todos)
 		adapter.notifyItemChanged(position)
+
+		val taskId = todo.kanboardTaskId
+		if (taskId != null) KanboardConfig.load(this)?.let { config ->
+			if (!todo.done) KanboardClient.closeTask(config, taskId) {}
+			else KanboardClient.openTask(config, taskId) {}
+		}
 	}
 
 	private fun deleteTodo(position: Int) {
@@ -112,6 +130,11 @@ class MainActivity : AppCompatActivity() {
 		}.show()
 
 		startService(Intent(this, BackgroundService::class.java))
+
+		val taskId = removed.kanboardTaskId
+		if (taskId != null) KanboardConfig.load(this)?.let { config ->
+			KanboardClient.removeTask(config, taskId) {}
+		}
 	}
 
 	private fun editTodo(position: Int) {
@@ -126,6 +149,30 @@ class MainActivity : AppCompatActivity() {
 				todos[position] = todos[position].copy(text = newText)
 				TodoStore.save(this, todos)
 				adapter.notifyItemChanged(position)
+
+				val taskId = todos[position].kanboardTaskId
+				if (taskId != null) KanboardConfig.load(this)?.let { config ->
+					KanboardClient.updateTaskTitle(config, taskId, newText) {}
+				}
+			}.setNegativeButton("Cancel", null).create().show()
+	}
+
+	private fun showKanboardSettings() {
+		val settingsBinding = KanboardSettingsBinding.inflate(layoutInflater)
+		KanboardConfig.load(this)?.let { config ->
+			settingsBinding.kanboardUrl.setText(config.url)
+			settingsBinding.kanboardToken.setText(config.token)
+			settingsBinding.kanboardProject.setText(config.project)
+		}
+
+		MaterialAlertDialogBuilder(this).setTitle("Kanboard settings").setView(settingsBinding.root)
+			.setPositiveButton("Save") { _, _ ->
+				KanboardConfig.save(
+					this,
+					settingsBinding.kanboardUrl.text.toString().trim(),
+					settingsBinding.kanboardToken.text.toString().trim(),
+					settingsBinding.kanboardProject.text.toString().trim()
+				)
 			}.setNegativeButton("Cancel", null).create().show()
 	}
 
@@ -148,6 +195,8 @@ class MainActivity : AppCompatActivity() {
 					.setMessage(getString(R.string.info, appVersion))
 					.setPositiveButton("OK") { _, _ -> }.create().show()
 			}
+
+			R.id.kanboardMenu -> showKanboardSettings()
 		}
 
 		return super.onOptionsItemSelected(item)

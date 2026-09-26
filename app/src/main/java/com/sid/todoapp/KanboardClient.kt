@@ -3,14 +3,19 @@ package com.sid.todoapp
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 
 object KanboardClient {
 	private val executor = Executors.newSingleThreadExecutor()
 	private val mainThread = Handler(Looper.getMainLooper())
+	private val dueDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
 
 	private fun call(
 		config: KanboardConfig.Config,
@@ -45,25 +50,51 @@ object KanboardClient {
 		}
 	}
 
-	private fun findProjectId(config: KanboardConfig.Config, onResult: (Int?) -> Unit) {
+	fun resolveProjectId(config: KanboardConfig.Config, onResult: (Int?) -> Unit) {
 		call(config, "getProjectByName", JSONObject().put("name", config.project)) { response ->
 			val id = response?.optJSONObject("result")?.optInt("id", 0) ?: 0
 			onResult(id.takeIf { it != 0 })
 		}
 	}
 
-	fun createTask(config: KanboardConfig.Config, title: String, onResult: (Int?) -> Unit) {
-		findProjectId(config) { projectId ->
-			if (projectId == null) {
-				onResult(null)
-				return@findProjectId
+	fun getAllTasks(
+		config: KanboardConfig.Config,
+		projectId: Int,
+		onResult: (List<JSONObject>) -> Unit,
+	) {
+		val tasks = ArrayList<JSONObject>()
+		call(
+			config, "getAllTasks", JSONObject().put("project_id", projectId).put("status_id", 1)
+		) { openResponse ->
+			(openResponse?.opt("result") as? JSONArray)?.let {
+				for (i in 0 until it.length()) tasks.add(it.getJSONObject(i))
 			}
 
-			val params = JSONObject().put("title", title).put("project_id", projectId)
-			call(config, "createTask", params) { response ->
-				val id = response?.optInt("result", 0) ?: 0
-				onResult(id.takeIf { it != 0 })
+			call(
+				config, "getAllTasks", JSONObject().put("project_id", projectId).put("status_id", 0)
+			) { closedResponse ->
+				(closedResponse?.opt("result") as? JSONArray)?.let {
+					for (i in 0 until it.length()) tasks.add(it.getJSONObject(i))
+				}
+
+				onResult(tasks)
 			}
+		}
+	}
+
+	fun createTask(
+		config: KanboardConfig.Config,
+		projectId: Int,
+		title: String,
+		dueDate: Long,
+		onResult: (Int?) -> Unit,
+	) {
+		val params = JSONObject().put("title", title).put("project_id", projectId)
+		if (dueDate > 0) params.put("date_due", dueDateFormat.format(Date(dueDate)))
+
+		call(config, "createTask", params) { response ->
+			val id = response?.optInt("result", 0) ?: 0
+			onResult(id.takeIf { it != 0 })
 		}
 	}
 

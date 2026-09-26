@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
 		binding.itemList.adapter = adapter
 
 		startService(Intent(this, BackgroundService::class.java))
+		syncKanboard()
 
 		binding.btnDeadline.setOnClickListener {
 			MaterialDatePicker.Builder.datePicker().setCalendarConstraints(
@@ -93,13 +94,88 @@ class MainActivity : AppCompatActivity() {
 			startService(Intent(this, BackgroundService::class.java))
 
 			KanboardConfig.load(this)?.let { config ->
-				KanboardClient.createTask(config, text) { taskId ->
-					if (taskId == null || index >= todos.size) return@createTask
+				KanboardClient.resolveProjectId(config) { projectId ->
+					if (projectId == null || index >= todos.size) return@resolveProjectId
 
-					todos[index] = todos[index].copy(kanboardTaskId = taskId)
-					TodoStore.save(this, todos)
-					adapter.notifyItemChanged(index)
+					KanboardClient.createTask(
+						config, projectId, text, todos[index].deadline
+					) { taskId ->
+						if (taskId == null || index >= todos.size) return@createTask
+
+						todos[index] = todos[index].copy(kanboardTaskId = taskId)
+						TodoStore.save(this, todos)
+						adapter.notifyItemChanged(index)
+					}
 				}
+			}
+		}
+	}
+
+	private fun syncKanboard(showFeedback: Boolean = false) {
+		val config = KanboardConfig.load(this) ?: return
+
+		KanboardClient.resolveProjectId(config) { projectId ->
+			if (projectId == null) {
+				if (showFeedback) Snackbar.make(
+					binding.itemList, "Kanboard project not found", Snackbar.LENGTH_LONG
+				).show()
+				return@resolveProjectId
+			}
+
+			KanboardClient.getAllTasks(config, projectId) { remoteTasks ->
+				val remoteById = remoteTasks.associateBy { it.getInt("id") }
+
+				val iterator = todos.listIterator()
+				while (iterator.hasNext()) {
+					val todo = iterator.next()
+					val taskId = todo.kanboardTaskId ?: continue
+					val remote = remoteById[taskId]
+
+					if (remote == null) iterator.remove()
+					else iterator.set(
+						todo.copy(
+							text = remote.getString("title"),
+							done = remote.optInt("is_active", 1) == 0,
+							deadline = remote.optLong("date_due", 0).let {
+								if (it > 0) it * 1000 else todo.deadline
+							}
+						)
+					)
+				}
+
+				val trackedIds = todos.mapNotNull { it.kanboardTaskId }.toSet()
+				for (task in remoteTasks) {
+					val taskId = task.getInt("id")
+					if (taskId in trackedIds) continue
+
+					val dueDate = task.optLong("date_due", 0).let { if (it > 0) it * 1000 else 0L }
+					todos.add(
+						TodoStore.Todo(
+							task.getString("title"), dueDate, task.optInt("is_active", 1) == 0, taskId
+						)
+					)
+				}
+
+				for (i in todos.indices) {
+					if (todos[i].kanboardTaskId != null) continue
+					val unsynced = todos[i]
+
+					KanboardClient.createTask(
+						config, projectId, unsynced.text, unsynced.deadline
+					) { taskId ->
+						if (taskId != null && i < todos.size && todos[i].kanboardTaskId == null) {
+							todos[i] = todos[i].copy(kanboardTaskId = taskId)
+							TodoStore.save(this, todos)
+						}
+					}
+				}
+
+				TodoStore.save(this, todos)
+				adapter.notifyDataSetChanged()
+
+				if (showFeedback) Snackbar.make(
+					binding.itemList, "Synced with Kanboard", Snackbar.LENGTH_SHORT
+				).show()
 			}
 		}
 	}
@@ -173,6 +249,7 @@ class MainActivity : AppCompatActivity() {
 					settingsBinding.kanboardToken.text.toString().trim(),
 					settingsBinding.kanboardProject.text.toString().trim()
 				)
+				syncKanboard(showFeedback = true)
 			}.setNegativeButton("Cancel", null).create().show()
 	}
 
@@ -197,6 +274,7 @@ class MainActivity : AppCompatActivity() {
 			}
 
 			R.id.kanboardMenu -> showKanboardSettings()
+			R.id.kanboardSyncMenu -> syncKanboard(showFeedback = true)
 		}
 
 		return super.onOptionsItemSelected(item)
@@ -244,11 +322,10 @@ class MainActivity : AppCompatActivity() {
 			private val binding = ListItemBinding.bind(itemView)
 
 			fun bind(todo: TodoStore.Todo) {
-				val date =
-					SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(Date(todo.deadline))
-
 				binding.txtTodo.text = todo.text
-				binding.txtDeadline.text = date
+				binding.txtDeadline.text = if (todo.deadline > 0) SimpleDateFormat(
+					"MMMM dd, yyyy", Locale.getDefault()
+				).format(Date(todo.deadline)) else "No deadline"
 				binding.txtTodo.paintFlags = if (todo.done)
 					binding.txtTodo.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
 				else binding.txtTodo.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()

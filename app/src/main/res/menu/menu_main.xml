@@ -11,4 +11,8 @@
         android:id="@+id/kanboardMenu"
         android:title="Kanboard"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/kanboardSyncMenu"
+        android:title="Sync Kanboard"
+        app:showAsAction="never" />
 </menu>
